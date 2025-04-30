@@ -47,8 +47,24 @@ class MainWindow(QMainWindow):
         # Connect parameter change signals
         self.config_panel.parameter_changed.connect(self.middle_tabs.on_parameter_changed)
 
-if __name__ == '__main__':
-    app = QApplication([])
-    window = MainWindow()
-    window.show()
-    app.exec_()
+if __name__ == "__main__":
+    from PyQt5.QtWidgets import QApplication
+    import sys
+
+    def main():
+        app = QApplication(sys.argv)
+        
+        # Create and show main window
+        window = MainWindow()
+        window.show()
+        
+        # Proper application exit
+        ret = app.exec_()
+        
+        # Clean up any resources
+        if hasattr(window, 'cad_importer') and window.cad_importer:
+            window.cad_importer.mesh = None
+        
+        sys.exit(ret)
+
+    main()

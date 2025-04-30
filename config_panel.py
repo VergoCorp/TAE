@@ -1,5 +1,6 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QScrollArea, QFrame, QGroupBox, 
-                           QFormLayout, QComboBox, QLineEdit, QHBoxLayout, QPushButton, QLabel, QMessageBox)
+                           QFormLayout, QComboBox, QLineEdit, QHBoxLayout, QPushButton, QLabel, QMessageBox, 
+                           QTabWidget, QFileDialog)
 from PyQt5.QtCore import Qt, pyqtSignal
 from numeric_input import NumericInput
 from simulation import SimulationParams, ThermoacousticSimulation
@@ -12,6 +13,7 @@ class ConfigPanel(QWidget):
     simulation_stopped = pyqtSignal()
     simulation_updated = pyqtSignal(dict, dict)
     simulation_finished = pyqtSignal(dict, dict)
+    cad_imported = pyqtSignal(str)  # New signal for CAD import
 
     def __init__(self):
         super().__init__()
@@ -23,6 +25,43 @@ class ConfigPanel(QWidget):
         layout = QVBoxLayout()
         layout.setSpacing(10)
         
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #cccccc;
+                background: white;
+            }
+            QTabBar::tab {
+                background: #f0f0f0;
+                border: 1px solid #cccccc;
+                padding: 8px 20px;
+                min-width: 100px;
+            }
+            QTabBar::tab:selected {
+                background: white;
+                border-bottom: none;
+            }
+        """)
+        
+        # Create simulation parameters tab
+        sim_tab = QWidget()
+        self.create_simulation_tab(sim_tab)
+        self.tab_widget.addTab(sim_tab, "Simulation")
+        
+        # Create CAD import tab
+        cad_tab = QWidget()
+        self.create_cad_tab(cad_tab)
+        self.tab_widget.addTab(cad_tab, "CAD Import")
+        
+        layout.addWidget(self.tab_widget)
+        self.setLayout(layout)
+        
+        self.setMinimumWidth(300)
+        self.setMaximumWidth(400)
+
+    def create_simulation_tab(self, tab):
+        """Create the simulation parameters tab with all existing parameters"""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -221,13 +260,109 @@ class ConfigPanel(QWidget):
         scroll_layout.addStretch()
         scroll_widget.setLayout(scroll_layout)
         scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
-        self.setLayout(layout)
         
-        self.setMinimumWidth(300)
-        self.setMaximumWidth(400)
+        # Add scroll area to tab
+        tab_layout = QVBoxLayout()
+        tab_layout.addWidget(scroll)
+        tab.setLayout(tab_layout)
+
+    def create_cad_tab(self, tab):
+        """Create the CAD import tab"""
+        layout = QVBoxLayout()
         
-        self.connect_numeric_inputs()
+        # CAD Import Section
+        import_group = QGroupBox("Import CAD Model")
+        import_layout = QVBoxLayout()
+        
+        # File selection
+        file_layout = QHBoxLayout()
+        self.cad_path_label = QLabel("No file selected")
+        self.cad_path_label.setWordWrap(True)
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self.browse_cad_file)
+        file_layout.addWidget(self.cad_path_label, stretch=1)
+        file_layout.addWidget(browse_btn)
+        import_layout.addLayout(file_layout)
+        
+        # Import settings
+        settings_layout = QFormLayout()
+        
+        self.cad_units = QComboBox()
+        self.cad_units.addItems(["Millimeters", "Inches", "Meters"])
+        settings_layout.addRow("Units:", self.cad_units)
+        
+        self.cad_orientation = QComboBox()
+        self.cad_orientation.addItems(["Vertical", "Horizontal"])
+        settings_layout.addRow("Orientation:", self.cad_orientation)
+        
+        import_layout.addLayout(settings_layout)
+        
+        # Import button
+        self.import_btn = QPushButton("Import Model")
+        self.import_btn.clicked.connect(self.import_cad_model)
+        self.import_btn.setEnabled(False)
+        self.import_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 5px;")
+        import_layout.addWidget(self.import_btn)
+        
+        import_group.setLayout(import_layout)
+        layout.addWidget(import_group)
+        
+        # Preview section
+        preview_group = QGroupBox("Model Preview")
+        preview_layout = QVBoxLayout()
+        self.preview_label = QLabel("No model loaded")
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        preview_layout.addWidget(self.preview_label)
+        preview_group.setLayout(preview_layout)
+        layout.addWidget(preview_group)
+        
+        # Status section
+        status_group = QGroupBox("Import Status")
+        status_layout = QVBoxLayout()
+        self.status_label = QLabel("Ready")
+        status_layout.addWidget(self.status_label)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
+        
+        layout.addStretch()
+        tab.setLayout(layout)
+
+    def browse_cad_file(self):
+        """Open file dialog to select CAD file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select CAD File",
+            "",
+            "CAD Files (*.stp *.step *.stl *.iges *.igs *.x_t);;All Files (*.*)"
+        )
+        
+        if file_path:
+            self.cad_path_label.setText(file_path)
+            self.import_btn.setEnabled(True)
+            self.status_label.setText("File selected. Ready to import.")
+
+    def import_cad_model(self):
+        """Import the selected CAD model"""
+        try:
+            file_path = self.cad_path_label.text()
+            if file_path == "No file selected":
+                raise ValueError("No file selected")
+                
+            self.status_label.setText("Importing model...")
+            self.import_btn.setEnabled(False)
+            
+            # Here you would add your CAD import logic
+            # For now, we'll just emit the signal
+            self.cad_imported.emit(file_path)
+            
+            self.status_label.setText("Import successful!")
+            self.preview_label.setText("Model loaded successfully")
+            
+        except Exception as e:
+            self.status_label.setText(f"Import failed: {str(e)}")
+            QMessageBox.critical(self, "Import Error", str(e))
+        finally:
+            self.import_btn.setEnabled(True)
 
     def connect_numeric_inputs(self):
         """Connect all NumericInput widgets to update on valueChanged and editingFinished"""
@@ -334,13 +469,16 @@ class ConfigPanel(QWidget):
     def get_simulation_parameters(self):
         """Collect all parameters for PDE solver"""
         return {
-            'hhx_temp': self.hhx_temp.value(),
-            'chx_temp': self.chx_temp.value(),
-            'stack_properties': {
-                'length': self.stack_length.value(),
-                'porosity': self.stack_porosity.value()
-            },
-            'working_gas': self.gas_type.currentText(),
-            'pressure': self.pressure.value()
-            # Add other parameters
+            'stack_length': self.stack_length.value(),
+            'stack_width': self.stack_width.value(),
+            'stack_height': self.stack_height.value(),
+            'stack_porosity': self.stack_porosity.value(),
+            'stack_thermal_conductivity': self.stack_thermal_conductivity.value(),
+            'hhx_length': self.hhx_length.value(),
+            'hhx_diameter': self.hhx_diameter.value(),
+            'chx_internal_br': self.chx_internal_br.value(),
+            'fluid_type': self.working_fluid_type.currentText(),
+            'fluid_pressure': self.working_fluid_pressure.value(),
+            'ambient_temp': self.op_ambient_temp.value(),
+            'operating_temp': self.op_operating_temp.value(),
         }

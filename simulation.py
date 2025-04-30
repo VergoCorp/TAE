@@ -1,3 +1,41 @@
+def solve_thermoacoustics(self, params):
+    # Extract parameters
+    stack_length = params['stack_length'] * 1e-3
+    # ...
+
+    print(f"Initial Parameters: {params}")
+
+    # Initialize arrays
+    nx = 100
+    T = np.full(nx, ambient_temp)
+    u = np.zeros(nx)
+
+    print(f"Initial Temperature: {T}")
+    print(f"Initial Displacement: {u}")
+
+    # Time-stepping loop
+    for _ in range(1000):
+        # Update temperature
+        T[1:-1] += alpha * dt / dx**2 * (T[2:] - 2*T[1:-1] + T[:-2])
+        # Update displacement
+        u[1:-1] += c**2 * dt**2 / dx**2 * (u[2:] - 2*u[1:-1] + u[:-2])
+
+    print(f"Final Temperature: {T}")
+    print(f"Final Displacement: {u}")
+
+    # Calculate results
+    frequency = np.sqrt(np.mean(u**2)) * c / (2 * np.pi * stack_length)
+    power = np.max(u) * fluid_pressure
+    efficiency = power / (stack_thermal_conductivity * (operating_temp - ambient_temp))
+
+    print(f"Results - Frequency: {frequency}, Power: {power}, Efficiency: {efficiency}")
+
+    return {
+        'frequency': frequency,
+        'power': power,
+        'efficiency': efficiency
+    }
+
 import numpy as np
 from dataclasses import dataclass
 from typing import Dict, Tuple
@@ -46,36 +84,84 @@ class SimulationParams:
 class ThermoacousticSimulation:
     def __init__(self, params: SimulationParams):
         self.params = params
+        self.cad_importer = None  
         self.setup_simulation_parameters()
         self.initialize_arrays()
-        self.time = 0.0
         self.step = 0
         
+    def load_cad_model(self, filepath):
+        """Load CAD model with validation"""
+        from cad_import import CADImporter
+        
+        if self.cad_importer is None:
+            self.cad_importer = CADImporter()
+            
+        success = self.cad_importer.import_cad(filepath)
+        if success:
+            # Verify CAD dimensions match simulation parameters
+            cad_dims = self.cad_importer.get_dimensions()
+            if cad_dims:
+                print(f"CAD Dimensions: {cad_dims}")
+        return success
+        
+    def visualize_geometry(self, **kwargs):
+        """Show CAD with customization options"""
+        if self.cad_importer:
+            self.cad_importer.visualize(**kwargs)
+        else:
+            raise ValueError("No CAD model loaded")
+    
+    def export_visualization(self, filename):
+        """Save CAD visualization to file"""
+        if self.cad_importer:
+            self.cad_importer.visualize(screenshot=filename)
+        else:
+            raise ValueError("No CAD model loaded")
+            
     def setup_simulation_parameters(self):
+        # Temperature validation
+        if self.params.operating_temp <= self.params.ambient_temp:
+            raise ValueError(
+                f"Operating temp {self.params.operating_temp}°C must be > "
+                f"ambient {self.params.ambient_temp}°C"
+            )
+            
+        # Validate parameters with warnings
+        if not (0.1 <= self.params.stack_porosity <= 99.9):
+            print(f"Warning: Stack porosity {self.params.stack_porosity}% is outside recommended range (0.1-99.9%)")
+            self.params.stack_porosity = max(0.1, min(99.9, self.params.stack_porosity))
+            
+        # Basic fluid properties (must come first)
+        self.c_fluid = 343.0  # Default sound speed (m/s)
+        self.rho_fluid = 1.225  # Default density (kg/m³)
+        
         # Convert mm to m
-        self.stack_length = max(self.params.stack_length * 1e-3, 0.001)  # Minimum 1mm
-        self.resonator_length = self.stack_length * 4  # Typical ratio
+        self.stack_length = max(self.params.stack_length * 1e-3, 0.001)
+        self.resonator_length = self.stack_length * 4
         
         # Grid parameters
         self.nx_stack = 100
         self.nx_resonator = 200
-        self.dt = 1e-5  # Time step (s)
-        self.max_steps = 10000
         
-        # Material properties (example values, should be temperature-dependent)
-        self.k_stack = max(self.params.stack_thermal_conductivity, 0.1)  # Minimum thermal conductivity
-        self.rho_stack = 8000  # kg/m³ (stainless steel)
+        # Derived spatial steps
+        self.dx_stack = self.stack_length / self.nx_stack
+        self.dx_resonator = self.resonator_length / self.nx_resonator
+        
+        # Time step based on CFL condition
+        self.dt = min(1e-5, 0.5*self.dx_stack/self.c_fluid)
+        
+        # Temperature-dependent properties
+        avg_temp = (self.params.operating_temp + self.params.ambient_temp)/2 + 273.15
+        self.k_stack = max(self.params.stack_thermal_conductivity, 0.1)
+        self.rho_stack = 8000  # kg/m³
         self.cp_stack = 500  # J/kg·K
         
-        # Fluid properties (should depend on fluid_type and pressure)
-        self.rho_fluid = 1.225  # kg/m³ (air at STP)
-        self.c_fluid = 343.0  # m/s (speed of sound in air)
+        # Simulation control
+        self.max_steps = 10000
         
-        # Derived parameters
-        self.dx_stack = self.stack_length / self.nx_stack  # Remove -1 to avoid zero division
-        self.dx_resonator = self.resonator_length / self.nx_resonator  # Remove -1 to avoid zero division
+        # Thermal diffusivity
         self.alpha = self.k_stack * self.dt / (self.rho_stack * self.cp_stack * self.dx_stack**2)
-        
+
     def initialize_arrays(self):
         # Initialize temperature array with linear gradient
         self.T = np.linspace(
@@ -171,21 +257,62 @@ class ThermoacousticSimulation:
 
     def run_simulation(self, callback=None) -> Tuple[Dict[str, float], Dict[str, np.ndarray]]:
         """Run simulation for max_steps or until convergence"""
+        print(f"Starting simulation with parameters: {self.params}")
         metrics_history = []
         
-        for _ in range(self.max_steps):
+        for step in range(self.max_steps):
+            self.step = step
             metrics = self.step_simulation()
             metrics_history.append(metrics)
             
-            # Call callback with current metrics if provided
+            # Print progress every 100 steps
+            if step % 100 == 0:
+                print(f"Step {step}: Frequency={metrics['frequency']} Hz, "
+                      f"Power={metrics['power']} W, "
+                      f"Efficiency={metrics['efficiency']}")
+            
             if callback:
                 callback(metrics, self.get_arrays())
             
-            # Check for convergence (example condition)
-            if self.step > 1000 and np.abs(
-                metrics_history[-1]['power'] - 
-                metrics_history[-2]['power']
-            ) < 1e-6:
+            # Enhanced convergence criteria
+            if step > 1000 and all([
+                np.abs(metrics_history[-1]['power'] - metrics_history[-2]['power']) < 1e-6,
+                np.abs(metrics_history[-1]['frequency'] - metrics_history[-2]['frequency']) < 0.1,
+                np.abs(metrics_history[-1]['efficiency'] - metrics_history[-2]['efficiency']) < 1e-4
+            ]):
+                print(f"Converged after {step} steps")
                 break
                 
-        return metrics, self.get_arrays()
+        final_metrics = metrics_history[-1]
+        print(f"\nFinal Results:\n"
+              f"Frequency: {final_metrics['frequency']} Hz\n"
+              f"Power: {final_metrics['power']} W\n"
+              f"Efficiency: {final_metrics['efficiency']}")
+              
+        return final_metrics, self.get_arrays()
+
+    def _temp_dependent_conductivity(self, temp):
+        # Implement temperature-dependent conductivity model
+        pass
+
+    def _temp_dependent_density(self, temp):
+        # Implement temperature-dependent density model
+        pass
+
+    def _temp_dependent_heat_capacity(self, temp):
+        # Implement temperature-dependent heat capacity model
+        pass
+
+    def _fluid_density(self, fluid_type, temp, pressure):
+        """Returns density in kg/m³ for given fluid"""
+        # Basic implementation - can be expanded
+        if fluid_type.lower() == 'air':
+            return (pressure * 1000) / (287.05 * temp)
+        return 1.225  # Default for other gases
+
+    def _fluid_sound_speed(self, fluid_type, temp):
+        """Returns sound speed in m/s for given fluid"""
+        # Basic implementation - can be expanded
+        if fluid_type.lower() == 'air':
+            return 331.4 + (0.6 * (temp - 273.15))
+        return 343.0  # Default for other gases

@@ -14,6 +14,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+from engine_2d_view import Engine2DView
+from engine_3d_view import Engine3DView
 
 
 class AnalysisThread(QThread):
@@ -71,12 +73,8 @@ class MiddleTabs(QTabWidget):
         }
 
         # Create and add tabs
-        self._2d_widget = None
-        self._2d_canvas = None
-        self._2d_ax = None
-        self._2d_fig = None
-        self._3d_widget = None
-        self._3d_plotter = None
+        self._2d_view = None
+        self._3d_view = None
         
         # Create 3D tab first (index 0)
         self.create_3d_tab()
@@ -88,9 +86,6 @@ class MiddleTabs(QTabWidget):
 
         # Connect signals
         self.currentChanged.connect(self.on_tab_changed)
-
-        # Initialize UI
-        self.init_ui()
 
     def on_parameter_changed(self, param_name: str, value: float):
         """Update the visualization when a parameter changes"""
@@ -111,216 +106,39 @@ class MiddleTabs(QTabWidget):
             print(f"Updating dimension: {internal_name} = {value}")  # Debug print
             self.current_dimensions[internal_name] = value
             
-            try:
-                # Update the current view
-                if self.currentIndex() == 0:  # 3D tab
-                    self.update_3d_model(internal_name)
-                else:  # 2D tab
-                    self.update_2d_schematic()
-            except Exception as e:
-                print(f"Error updating view: {e}")
-        else:
-            print(f"Warning: Parameter {internal_name} not found in current_dimensions")
+            # Update both views
+            if self._2d_view:
+                self._2d_view.draw_engine()
+            if self._3d_view:
+                self._3d_view.create_engine_model()
 
     def on_tab_changed(self):
-        if self.currentIndex() == 0:  # 3D tab
-            self.update_3d_model()
-        else:  # 2D tab
-            self.update_2d_schematic()
+        # No need to do anything special on tab change now
+        pass
 
     def create_2d_tab(self):
-        """Create 2D visualization tab with matplotlib"""
+        """Create 2D visualization tab with Engine2DView"""
         widget = QWidget()
         layout = QVBoxLayout()
         
-        # Create figure and canvas
-        self._2d_fig = plt.figure(figsize=(8, 6))
-        self._2d_canvas = FigureCanvas(self._2d_fig)
-        self._2d_ax = self._2d_fig.add_subplot(111)
+        # Create Engine2DView instance
+        self._2d_view = Engine2DView()
+        layout.addWidget(self._2d_view)
         
-        layout.addWidget(self._2d_canvas)
         widget.setLayout(layout)
-        
-        self._2d_widget = widget
         self.addTab(widget, "2D Sketch")
-        
-        # Initial update after setup
-        self.update_2d_schematic()
-
-    def update_2d_schematic(self):
-        """Enhanced 2D visualization with velocity vectors"""
-        if not hasattr(self, '_2d_ax'):
-            return
-            
-        self._2d_ax.clear()
-        
-        # Setup professional styling
-        self._2d_ax.grid(True, linestyle=':', alpha=0.7)
-        self._2d_ax.set_facecolor('#f8f8f8')
-        self._2d_fig.patch.set_facecolor('#f0f0f0')
-        
-        # Dimensions in meters
-        res_length = self.current_dimensions['resonator_length'] * 0.001
-        res_radius = self.current_dimensions['resonator_diameter'] * 0.0005
-        stack_length = self.current_dimensions['stack_length'] * 0.001
-        stack_pos = self.current_dimensions['stack_position'] * 0.001
-        hhx_length = self.current_dimensions['hhx_length'] * 0.001
-        chx_length = self.current_dimensions['chx_length'] * 0.001
-        
-        # Add velocity vectors (example data - replace with actual simulation results)
-        if hasattr(self, 'simulation') and hasattr(self.simulation, 'u'):
-            x_positions = np.linspace(0, res_length, len(self.simulation.u))
-            y_positions = np.zeros_like(x_positions)
-            
-            # Normalize velocities for visualization
-            max_vel = np.max(np.abs(self.simulation.u))
-            if max_vel > 0:
-                scaled_vel = 0.8 * res_radius * (self.simulation.u / max_vel)
-                
-                # Plot vectors with color indicating direction
-                for x, y, vel in zip(x_positions, y_positions, scaled_vel):
-                    color = '#ff0000' if vel > 0 else '#0000ff'  # Red=positive, Blue=negative
-                    self._2d_ax.arrow(x, y, 0, vel, 
-                                     head_width=0.01, head_length=0.005, 
-                                     fc=color, ec=color, alpha=0.7)
-                
-                # Add velocity scale legend
-                self._2d_ax.plot([0.8*res_length, 0.8*res_length], 
-                                [res_radius*1.2, res_radius*1.2 + 0.8*res_radius],
-                                color='black', lw=1)
-                self._2d_ax.text(0.8*res_length, res_radius*1.5, 
-                                f'{max_vel:.2f} m/s\n(peak velocity)', 
-                                ha='center', fontsize=8)
-        
-        # Add detailed annotations
-        self._2d_ax.set_title('Thermoacoustic Engine Cross-Section', 
-                            fontsize=12, pad=20)
-        self._2d_ax.set_xlabel('Position Along Resonator (m)', fontsize=10)
-        self._2d_ax.set_ylabel('', fontsize=10)
-        self._2d_ax.tick_params(axis='both', which='major', labelsize=8)
-        
-        # Add component labels with arrows
-        def annotate_component(x, y, text, color):
-            self._2d_ax.annotate(text, xy=(x, y), xytext=(x, y+res_radius*1.5),
-                               ha='center', va='center', fontsize=9,
-                               arrowprops=dict(arrowstyle="->", color=color),
-                               bbox=dict(boxstyle="round", alpha=0.2, color=color))
-        
-        # Draw components with enhanced styling
-        components = [
-            ('HHX', 0.02, '#ff6b6b', hhx_length),
-            ('Stack', stack_pos, '#4d96ff', stack_length),
-            ('CHX', stack_pos+stack_length, '#6bcb77', chx_length)
-        ]
-        
-        for name, pos, color, length in components:
-            rect = patches.Rectangle((pos, -res_radius), length, res_radius*2,
-                           facecolor=color, alpha=0.7, edgecolor='black', lw=1)
-            self._2d_ax.add_patch(rect)
-            annotate_component(pos + length/2, 0, name, color)
-        
-        # Draw resonator tube
-        tube = patches.Rectangle((0, -res_radius), res_length, res_radius*2,
-                       facecolor='none', edgecolor='#333333', linestyle='--', lw=1)
-        self._2d_ax.add_patch(tube)
-        
-        # Set proper axis limits
-        self._2d_ax.set_xlim(0, res_length)
-        self._2d_ax.set_ylim(-res_radius*1.5, res_radius*1.5)
-        
-        # Add scale bar
-        self._2d_ax.plot([0.05, 0.15], [-res_radius*1.3]*2, color='black', lw=2)
-        self._2d_ax.text(0.1, -res_radius*1.4, '10 cm', ha='center', fontsize=8)
-        
-        self._2d_canvas.draw()
 
     def create_3d_tab(self):
-        """Create 3D visualization tab with PyVista"""
+        """Create 3D visualization tab with Engine3DView"""
         widget = QWidget()
         layout = QVBoxLayout()
         
-        # Create PyVista plotter
-        self._3d_plotter = QtInteractor(widget)
-        layout.addWidget(self._3d_plotter)
+        # Create Engine3DView instance
+        self._3d_view = Engine3DView()
+        layout.addWidget(self._3d_view)
         
         widget.setLayout(layout)
-        self._3d_widget = widget
         self.addTab(widget, "3D Sketch")
-        
-        # Initial update
-        self.update_3d_model()
-
-    def update_3d_model(self, changed_param=None):
-        """Update 3D model with new parameters"""
-        self._3d_plotter.clear()
-        
-        # Convert mm to meters
-        res_length = self.current_dimensions['resonator_length'] * 0.001
-        res_diameter = self.current_dimensions['resonator_diameter'] * 0.001
-        stack_length = self.current_dimensions['stack_length'] * 0.001
-        stack_position = self.current_dimensions['stack_position'] * 0.001
-        hhx_length = self.current_dimensions['hhx_length'] * 0.001
-        chx_length = self.current_dimensions['chx_length'] * 0.001
-        
-        # Create engine components
-        # Engine casing (left and right)
-        casing_left = pv.Cylinder(center=[stack_position, 0, 0], direction=[1, 0, 0],
-                                radius=res_diameter/2, height=0.05)
-        casing_right = pv.Cylinder(center=[stack_position + stack_length + hhx_length + chx_length, 0, 0],
-                                 direction=[1, 0, 0], radius=res_diameter/2, height=0.05)
-        
-        # Stack
-        stack = pv.Box(bounds=[stack_position + hhx_length, 
-                             stack_position + hhx_length + stack_length,
-                             -res_diameter/2, res_diameter/2,
-                             -res_diameter/2, res_diameter/2])
-        
-        # Heat exchangers
-        hhx = pv.Cylinder(center=[stack_position + hhx_length/2, 0, 0],
-                         direction=[1, 0, 0], radius=res_diameter*0.4, height=hhx_length)
-        
-        chx = pv.Cylinder(center=[stack_position + hhx_length + stack_length + chx_length/2, 0, 0],
-                         direction=[1, 0, 0], radius=res_diameter*0.4, height=chx_length)
-        
-        # Resonating pipes
-        res_pipe_left = pv.Cylinder(center=[stack_position/2, 0, 0],
-                                  direction=[1, 0, 0], radius=res_diameter*0.3, height=stack_position)
-        
-        right_res_start = stack_position + stack_length + hhx_length + chx_length + 0.05
-        right_res_length = res_length - right_res_start
-        res_pipe_right = pv.Cylinder(center=[right_res_start + right_res_length/2, 0, 0],
-                                   direction=[1, 0, 0], radius=res_diameter*0.3, height=right_res_length)
-        
-        # Add all parts to the plotter with appropriate colors and opacity
-        self._3d_plotter.add_mesh(casing_left, color='gray', opacity=0.7)
-        self._3d_plotter.add_mesh(casing_right, color='gray', opacity=0.7)
-        self._3d_plotter.add_mesh(stack, color='royalblue', opacity=0.7)
-        self._3d_plotter.add_mesh(hhx, color='red', opacity=0.7)
-        self._3d_plotter.add_mesh(chx, color='blue', opacity=0.7)
-        self._3d_plotter.add_mesh(res_pipe_left, color='lightgray')
-        self._3d_plotter.add_mesh(res_pipe_right, color='lightgray')
-        
-        # Set camera position for isometric view
-        self._3d_plotter.camera_position = 'iso'
-        self._3d_plotter.reset_camera()
-
-    def import_cad_model(self, filepath):
-        """Import CAD file into 3D viewer"""
-        try:
-            # Supported extensions without extra dependencies
-            supported = ('.stl', '.obj', '.ply', '.vtk', '.step', '.stp', '.iges', '.igs')
-            
-            if not filepath.lower().endswith(supported):
-                raise ValueError(f"Unsupported file format. Supported: {', '.join(supported)}")
-                
-            mesh = pv.read(filepath)
-            self._3d_plotter.add_mesh(mesh, color='lightgray', show_edges=True)
-            self._3d_plotter.reset_camera()
-            return True
-            
-        except Exception as e:
-            print(f"CAD import failed: {str(e)}")
-            return False
 
     def on_simulation_started(self, simulation):
         """Handle start of simulation"""
@@ -386,7 +204,6 @@ class MiddleTabs(QTabWidget):
         try:
             if hasattr(self, 'results_tab'):
                 self.results_tab.update_results(results)
-            self.update_2d_schematic()
         except Exception as e:
             self._handle_analysis_error(e)
     
@@ -411,16 +228,54 @@ class MiddleTabs(QTabWidget):
             self.metrics_label.setText(f"Simulation in progress ({progress}%)")
 
     def solve_thermoacoustics(self, params):
-        """Your thermoacoustic PDE solver implementation"""
-        # Placeholder - replace with your actual solver
-        # This should return dict with:
-        # - frequency (Hz)
-        # - power (W)
-        # - efficiency (0-1)
+        """Thermoacoustic PDE solver considering all components and parameters"""
+        # Extract parameters
+        stack_length = params['stack_length'] * 1e-3  # Convert mm to m
+        stack_width = params['stack_width'] * 1e-3
+        stack_height = params['stack_height'] * 1e-3
+        stack_porosity = params['stack_porosity'] / 100.0
+        stack_thermal_conductivity = params['stack_thermal_conductivity']
+        fluid_pressure = params['fluid_pressure'] * 1e3  # Convert kPa to Pa
+        ambient_temp = params['ambient_temp'] + 273.15  # Convert to Kelvin
+        operating_temp = params['operating_temp'] + 273.15  # Convert to Kelvin
+        hhx_length = params['hhx_length'] * 1e-3
+        chx_length = params['chx_length'] * 1e-3
+        resonator_diameter = params['resonator_diameter'] * 1e-3
+
+        # Derived parameters
+        alpha = stack_thermal_conductivity / (stack_porosity * stack_length)
+        c = 343.0  # Speed of sound in air, m/s
+
+        # Initialize arrays
+        nx = 100
+        T = np.full(nx, ambient_temp)
+        u = np.zeros(nx)
+
+        # Time-stepping parameters
+        dt = 1e-5
+        dx = stack_length / nx
+
+        # Time-stepping loop
+        for _ in range(1000):
+            # Update temperature
+            T[1:-1] += alpha * dt / dx**2 * (T[2:] - 2*T[1:-1] + T[:-2])
+
+            # Update displacement
+            u[1:-1] += c**2 * dt**2 / dx**2 * (u[2:] - 2*u[1:-1] + u[:-2])
+
+            # Incorporate heat exchangers
+            T[:int(nx * hhx_length / stack_length)] += 0.1  # Example effect
+            T[-int(nx * chx_length / stack_length):] -= 0.1
+
+        # Calculate results
+        frequency = np.sqrt(np.mean(u**2)) * c / (2 * np.pi * stack_length)
+        power = np.max(u) * fluid_pressure
+        efficiency = power / (stack_thermal_conductivity * (operating_temp - ambient_temp))
+
         return {
-            'frequency': 85.3,
-            'power': 150.2,
-            'efficiency': 0.42
+            'frequency': frequency,
+            'power': power,
+            'efficiency': efficiency
         }
 
     def run_simulation(self):
@@ -434,7 +289,7 @@ class MiddleTabs(QTabWidget):
             
             # 3. Update visualizations
             self.update_results_tab(results)
-            self.update_2d_schematic()
+            self._2d_view.draw_engine()
             
             return True
             
