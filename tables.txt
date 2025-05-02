@@ -1,0 +1,39 @@
+Table 1: Honeycomb Ceramic Stack Specification
+| Attribute          | Value           |
+|--------------------|-----------------|
+| Material           | Honeycomb ceramic |
+| Cell Density       | 400 CPSI        |
+| Specific Heat      | 1047 J/kgK      |
+| Melting Point      | 1600°C          |
+| Thermal Conductivity | 0.42 W/m·K    |
+| Height/Width       | 94 x 94 mm      |
+
+Table 5: Blockage Ratio Versus Operating Temperatures for Single and Dual CHXs
+| Blockage Ratio [%] | Operating Temperature [°C] |  |
+|--------------------|----------------------------|  |
+|                    | Single-CHX  | Dual-CHX     |
+| 25                 | 472         | 456          |
+| 36                 | 384         | 373          |
+| 42                 | 378         | 365          |
+| 47                 | 373         | 360          |
+| 59                 | 365         | 355          |
+
+Table 6: Blockage Ratio Versus Onset Time and Sound Generated
+| Blockage Ratio [%] | Single CHX         |          | Dual CHX           |          |
+|--------------------|--------------------|----------|--------------------|----------|
+|                    | Onset Time [Sec] | Sound Generated [dB] | Onset Time [Sec] | Sound Generated [dB] |
+| 25                 | 173              | 115.1      | 247              | 114.9      |
+| 36                 | 166              | 116.4      | 242              | 115.4      |
+| 42                 | 138              | 118.1      | 235              | 117.5      |
+| 47                 | 134              | 118.1      | 205              | 117.5      |
+| 59                 | 175              | 116.2      | 236              | 115.3      |
+
+Table 7: Blockage Ratio Versus Onset Temperature and Volumetric Velocity
+| Blockage Ratio [%] | Single CHX                     |          | Dual CHX                       |          |
+|--------------------|--------------------------------|----------|--------------------------------|----------|
+|                    | Onset Temperature [°C] | Volumetric Velocity [m/s] | Onset Temperature [°C] | Volumetric Velocity [m/s] |
+| 28                 | 240                          | 4.76      | 350                          | 4.65      |
+| 36                 | 125                          | 5.15      | 265                          | 5.09      |
+| 42                 | 77                           | 5.92      | 135                          | 5.78      |
+| 47                 | 78                           | 4.93      | 139                          | 5.51      |
+| 59                 | 97                           | 4.93      | 139                          | 4.91      |

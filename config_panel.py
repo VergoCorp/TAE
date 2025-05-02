@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QScrollArea, QFrame, QGroupBox, 
                            QFormLayout, QComboBox, QLineEdit, QHBoxLayout, QPushButton, QLabel, QMessageBox, 
-                           QTabWidget, QFileDialog)
+                           QTabWidget, QFileDialog, QCheckBox, QProgressBar, QStyle)
 from PyQt5.QtCore import Qt, pyqtSignal
 from numeric_input import NumericInput
 from simulation import SimulationParams, ThermoacousticSimulation
@@ -14,12 +14,16 @@ class ConfigPanel(QWidget):
     simulation_updated = pyqtSignal(dict, dict)
     simulation_finished = pyqtSignal(dict, dict)
     cad_imported = pyqtSignal(str)  # New signal for CAD import
+    transient_simulation_control = pyqtSignal(str) # New signal: 'start', 'pause', 'stop'
+    transient_simulation_config_changed = pyqtSignal(dict) # New signal for config changes
 
     def __init__(self):
         super().__init__()
         self.simulation = None
         self.running = False
+        self.transient_running = False
         self.init_ui()
+        self.connect_signals()
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -47,18 +51,23 @@ class ConfigPanel(QWidget):
         # Create simulation parameters tab
         sim_tab = QWidget()
         self.create_simulation_tab(sim_tab)
-        self.tab_widget.addTab(sim_tab, "Simulation")
+        self.tab_widget.addTab(sim_tab, "Parameters")
         
         # Create CAD import tab
         cad_tab = QWidget()
         self.create_cad_tab(cad_tab)
         self.tab_widget.addTab(cad_tab, "CAD Import")
         
+        # Create Transient Analysis tab
+        transient_tab = QWidget()
+        self.create_transient_tab(transient_tab)
+        self.tab_widget.addTab(transient_tab, "Transient Analysis")
+        
         layout.addWidget(self.tab_widget)
         self.setLayout(layout)
         
-        self.setMinimumWidth(300)
-        self.setMaximumWidth(400)
+        self.setMinimumWidth(350)
+        self.setMaximumWidth(450)
 
     def create_simulation_tab(self, tab):
         """Create the simulation parameters tab with all existing parameters"""
@@ -327,6 +336,72 @@ class ConfigPanel(QWidget):
         layout.addStretch()
         tab.setLayout(layout)
 
+    def create_transient_tab(self, tab):
+        """Create the Transient Analysis tab UI"""
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        
+        # --- Simulation Control ---
+        control_group = QGroupBox("Simulation Control")
+        control_layout = QHBoxLayout()
+        self.transient_start_btn = QPushButton("Start")
+        self.transient_start_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        self.transient_pause_btn = QPushButton("Pause")
+        self.transient_pause_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        self.transient_pause_btn.setEnabled(False)
+        self.transient_stop_btn = QPushButton("Stop")
+        self.transient_stop_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaStop))
+        self.transient_stop_btn.setEnabled(False)
+        
+        control_layout.addWidget(self.transient_start_btn)
+        control_layout.addWidget(self.transient_pause_btn)
+        control_layout.addWidget(self.transient_stop_btn)
+        control_group.setLayout(control_layout)
+        layout.addWidget(control_group)
+
+        # --- Time Parameters ---
+        time_group = QGroupBox("Time Parameters")
+        time_layout = QFormLayout()
+        self.sim_duration = NumericInput(min_val=0, decimals=1, suffix=" s")
+        self.sim_duration.setValue(60.0) # Default 60 seconds
+        self.sim_time_step = NumericInput(min_val=1e-6, max_val=1.0, decimals=6, suffix=" s")
+        self.sim_time_step.setValue(0.001) # Default 1 ms
+        self.sim_update_interval = NumericInput(min_val=0.1, max_val=10.0, decimals=1, suffix=" s")
+        self.sim_update_interval.setValue(0.5) # Default update every 0.5s
+        time_layout.addRow("Simulation Duration:", self.sim_duration)
+        time_layout.addRow("Time Step (dt):", self.sim_time_step)
+        time_layout.addRow("UI Update Interval:", self.sim_update_interval)
+        time_group.setLayout(time_layout)
+        layout.addWidget(time_group)
+
+        # --- Output Configuration ---
+        output_group = QGroupBox("Output Configuration")
+        output_layout = QVBoxLayout()
+        self.log_data_checkbox = QCheckBox("Enable Data Logging")
+        self.plot_realtime_checkbox = QCheckBox("Enable Real-time Plotting")
+        output_layout.addWidget(self.log_data_checkbox)
+        output_layout.addWidget(self.plot_realtime_checkbox)
+        # Add more options here later (e.g., select variables to log/plot)
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # --- Status Display ---
+        status_group = QGroupBox("Simulation Status")
+        status_layout = QFormLayout()
+        self.transient_status_label = QLabel("Stopped")
+        self.transient_time_label = QLabel("0.00 s / 0.00 s")
+        self.transient_progress_bar = QProgressBar()
+        self.transient_progress_bar.setValue(0)
+        self.transient_progress_bar.setTextVisible(False)
+        status_layout.addRow("Status:", self.transient_status_label)
+        status_layout.addRow("Progress:", self.transient_progress_bar)
+        status_layout.addRow("Current Time:", self.transient_time_label)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
+
+        layout.addStretch() # Push elements to the top
+        tab.setLayout(layout)
+
     def browse_cad_file(self):
         """Open file dialog to select CAD file"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -399,34 +474,36 @@ class ConfigPanel(QWidget):
     def start_simulation(self):
         """Start a new simulation with current parameters"""
         # Create simulation parameters from current widget values
-        params = SimulationParams.from_config(self)
+        config_data = self.get_simulation_parameters()
+        params = SimulationParams.from_config(config_data)
         
         # Create new simulation instance
         self.simulation = ThermoacousticSimulation(params)
         self.running = True
         
         # Emit signal that simulation has started
-        self.simulation_started.emit(self.simulation)
+        # Passing the config data for now, as the simulation instance itself might not be ready
+        self.simulation_started.emit(config_data)
         
-        # Run simulation with callback for updates
+        # Run simulation in a separate thread to avoid blocking the UI
         import threading
-        def run_sim():
-            final_metrics = {}
-            final_arrays = {}
+        def run_sim_thread():
             try:
-                for step in range(100):  # Example: run for 100 steps
-                    if not self.running:
-                        break
-                    metrics = {'step': step, 'time': step * 0.01}  
-                    arrays = {'temperature': [20 + step/10] * 10}  # Example data
-                    final_metrics = metrics
-                    final_arrays = arrays
-                    self.simulation_updated.emit(metrics, arrays)
+                # Run the simplified simulation
+                final_results = self.simulation.run_simulation()
+                
+                # Emit finished signal with results
+                # Note: We're emitting from the worker thread. If UI updates are needed here,
+                # they must be done carefully using signals/slots or QMetaObject.invokeMethod.
+                self.simulation_finished.emit(final_results, {}) # Sending empty dict for arrays for now
+            except Exception as e:
+                print(f"Simulation thread error: {e}")
+                # Optionally emit an error signal
             finally:
-                self.simulation_finished.emit(final_metrics, final_arrays)
                 self.running = False
+                # We might need a signal to re-enable the button from the main thread
         
-        self.sim_thread = threading.Thread(target=run_sim)
+        self.sim_thread = threading.Thread(target=run_sim_thread)
         self.sim_thread.start()
     
     def reset_all_parameters(self):
@@ -482,3 +559,80 @@ class ConfigPanel(QWidget):
             'ambient_temp': self.op_ambient_temp.value(),
             'operating_temp': self.op_operating_temp.value(),
         }
+
+    def connect_signals(self):
+        """Connect signals for all tabs"""
+        # Connect signals for numeric inputs in the Parameters tab
+        self.connect_numeric_inputs() # Make sure this is called after UI setup
+
+        # Connect signals for Transient Analysis tab
+        self.transient_start_btn.clicked.connect(self.start_transient_simulation)
+        self.transient_pause_btn.clicked.connect(self.pause_transient_simulation)
+        self.transient_stop_btn.clicked.connect(self.stop_transient_simulation)
+
+        # Connect config changes for transient sim
+        self.sim_duration.valueChanged.connect(self.emit_transient_config_change)
+        self.sim_time_step.valueChanged.connect(self.emit_transient_config_change)
+        self.sim_update_interval.valueChanged.connect(self.emit_transient_config_change)
+        self.log_data_checkbox.stateChanged.connect(self.emit_transient_config_change)
+        self.plot_realtime_checkbox.stateChanged.connect(self.emit_transient_config_change)
+
+    def emit_transient_config_change(self):
+        """Emit signal when transient simulation config changes"""
+        config = {
+            'duration': self.sim_duration.value(),
+            'time_step': self.sim_time_step.value(),
+            'update_interval': self.sim_update_interval.value(),
+            'log_data': self.log_data_checkbox.isChecked(),
+            'plot_realtime': self.plot_realtime_checkbox.isChecked()
+        }
+        self.transient_simulation_config_changed.emit(config)
+
+    def start_transient_simulation(self):
+        print("Start Transient Simulation Requested")
+        self.transient_running = True
+        self.transient_status_label.setText("Running")
+        self.transient_start_btn.setEnabled(False)
+        self.transient_pause_btn.setEnabled(True)
+        self.transient_stop_btn.setEnabled(True)
+        self.transient_simulation_control.emit('start')
+        # Update progress bar max based on duration
+        duration = self.sim_duration.value()
+        self.transient_progress_bar.setMaximum(int(duration * 100)) # Example scaling
+        self.update_transient_time_display(0, duration)
+
+    def pause_transient_simulation(self):
+        print("Pause Transient Simulation Requested")
+        self.transient_running = False # Or a 'paused' state if needed
+        self.transient_status_label.setText("Paused")
+        self.transient_start_btn.setText("Resume") # Change text to Resume
+        self.transient_start_btn.setEnabled(True)
+        self.transient_pause_btn.setEnabled(False)
+        self.transient_simulation_control.emit('pause')
+
+    def stop_transient_simulation(self):
+        print("Stop Transient Simulation Requested")
+        self.transient_running = False
+        self.transient_status_label.setText("Stopped")
+        self.transient_start_btn.setText("Start") # Reset text
+        self.transient_start_btn.setEnabled(True)
+        self.transient_pause_btn.setEnabled(False)
+        self.transient_stop_btn.setEnabled(False)
+        self.transient_progress_bar.setValue(0)
+        self.update_transient_time_display(0, self.sim_duration.value())
+        self.transient_simulation_control.emit('stop')
+        
+    def update_transient_progress(self, current_time):
+        """Update progress bar and time label from simulation"""
+        if not self.transient_running and self.transient_status_label.text() != "Paused":
+             return # Don't update if stopped
+             
+        duration = self.sim_duration.value()
+        if duration > 0:
+            progress_value = int((current_time / duration) * self.transient_progress_bar.maximum())
+            self.transient_progress_bar.setValue(progress_value)
+        self.update_transient_time_display(current_time, duration)
+
+    def update_transient_time_display(self, current_time, total_duration):
+        """Helper to format time display"""
+        self.transient_time_label.setText(f"{current_time:.2f} s / {total_duration:.2f} s")

@@ -774,8 +774,45 @@ class ResultsTabs(StyledTabWidget):
                 canvas.draw()
 
     def on_simulation_finished(self, final_metrics: dict, final_arrays: dict):
-        """Handle simulation completion"""
-        self.on_simulation_updated(final_metrics, final_arrays)
+        """Handle simulation completion and update results tab"""
+        if not final_metrics:
+            # Handle cases where simulation failed or returned no results
+            for label in self.result_fields.values():
+                label.setText("Error")
+            return
+        
+        # Update results tab with formatted values
+        # Ensure all keys exist or provide defaults
+        display_values = {
+            "Acoustic Power Output": f"{final_metrics.get('acoustic_power', 0):.2f} W",
+            "Thermal Efficiency": f"{final_metrics.get('thermal_efficiency', 0):.1f} %",
+            "COP": f"{final_metrics.get('cop', 0):.2f}",
+            "Quality Factor": f"{final_metrics.get('quality_factor', 0):.1f}",
+            "Max Hot HX Temp (T_H)": f"{final_metrics.get('T_H', 0):.1f} °C",
+            "Max Cold HX Temp (T_C)": f"{final_metrics.get('T_C', 0):.1f} °C",
+            "Max Temperature Difference (ΔT)": f"{final_metrics.get('delta_T', 0):.1f} °C",
+            "Onset Temperature": f"{final_metrics.get('onset_temperature', 0):.1f} °C",
+            "Max Pressure Amplitude": f"{final_metrics.get('pressure_amplitude', 0):.0f} Pa",
+            "Max Volumetric Velocity": f"{final_metrics.get('velocity', 0):.3f} m/s",
+            "Resonance Frequency": f"{final_metrics.get('frequency', 0):.1f} Hz",
+            "Stack Performance Factor": f"{final_metrics.get('stack_performance_factor', 0):.2f}",
+            "Normalized Temperature Gradient": f"{final_metrics.get('normalized_temp_gradient', 0):.3f}",
+            "Working Gas Rayleigh Number": f"{final_metrics.get('rayleigh_number', 0):.1e}",
+            "Stack Reynolds Number": f"{final_metrics.get('reynolds_number', 0):.0f}",
+            "Thermoacoustic Parameter": f"{final_metrics.get('thermoacoustic_parameter', 0):.3f}",
+            "Onset Time": f"{final_metrics.get('onset_time', 0):.1f} s",
+            "Steady State Time": f"{final_metrics.get('steady_state_time', 0):.1f} s"
+        }
+        
+        for name, value in display_values.items():
+            if name in self.result_fields:
+                self.result_fields[name].setText(value)
+            else:
+                print(f"Warning: Result field '{name}' not found in UI.")
+
+        # Optionally update graphs or tables based on final_arrays if needed later
+        # self.update_final_graphs(final_arrays)
+        # self.update_final_tables(final_metrics, final_arrays)
 
     def clear_all_results(self):
         """Clear all results in preparation for new simulation"""
